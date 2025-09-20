@@ -1,0 +1,336 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Play, Pause, Square, RotateCcw, Settings, Volume2 } from 'lucide-react';
+
+const BoxingTimer = () => {
+  const [settings, setSettings] = useState({
+    roundTime: 180, // 3 minutes in seconds
+    restTime: 60,   // 1 minute in seconds
+    totalRounds: 5,
+    warningTime: 10 // warning 10 seconds before round ends
+  });
+  
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  
+  const [currentRound, setCurrentRound] = useState(1);
+  const [timeLeft, setTimeLeft] = useState(settings.roundTime);
+  const [isActive, setIsActive] = useState(false);
+  const [isResting, setIsResting] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [hasPlayedWarning, setHasPlayedWarning] = useState(false);
+  
+  const intervalRef = useRef(null);
+  const audioContextRef = useRef(null);
+
+  // Initialize audio context
+  useEffect(() => {
+    audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    return () => {
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+    };
+  }, []);
+
+  // Sound generation functions
+  const playSound = (frequency, duration, type = 'sine') => {
+    if (!audioContextRef.current || !soundEnabled) return;
+    
+    const oscillator = audioContextRef.current.createOscillator();
+    const gainNode = audioContextRef.current.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContextRef.current.destination);
+    
+    oscillator.frequency.setValueAtTime(frequency, audioContextRef.current.currentTime);
+    oscillator.type = type;
+    
+    gainNode.gain.setValueAtTime(0.3, audioContextRef.current.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContextRef.current.currentTime + duration);
+    
+    oscillator.start(audioContextRef.current.currentTime);
+    oscillator.stop(audioContextRef.current.currentTime + duration);
+  };
+
+  const playRoundStart = () => {
+    // Three quick beeps
+    playSound(800, 0.2);
+    setTimeout(() => playSound(800, 0.2), 250);
+    setTimeout(() => playSound(800, 0.2), 500);
+  };
+
+  const playRoundEnd = () => {
+    // Long low tone
+    playSound(400, 1);
+  };
+
+  const playWarning = () => {
+    // Two quick high beeps
+    playSound(1000, 0.15);
+    setTimeout(() => playSound(1000, 0.15), 200);
+  };
+
+  const playFinalEnd = () => {
+    // Victory sequence
+    playSound(600, 0.3);
+    setTimeout(() => playSound(800, 0.3), 400);
+    setTimeout(() => playSound(1000, 0.5), 800);
+  };
+
+  // Main timer effect
+  useEffect(() => {
+    if (isActive) {
+      intervalRef.current = setInterval(() => {
+        setTimeLeft(prevTime => {
+          // Play warning sound
+          if (!hasPlayedWarning && prevTime === settings.warningTime && !isResting) {
+            playWarning();
+            setHasPlayedWarning(true);
+          }
+
+          if (prevTime <= 1) {
+            // Time's up - switch between round and rest
+            if (!isResting) {
+              // Round ended
+              playRoundEnd();
+              if (currentRound >= settings.totalRounds) {
+                // Workout complete
+                playFinalEnd();
+                setIsActive(false);
+                return 0;
+              } else {
+                // Start rest period
+                setIsResting(true);
+                setHasPlayedWarning(false);
+                return settings.restTime;
+              }
+            } else {
+              // Rest ended - start next round
+              playRoundStart();
+              setCurrentRound(prev => prev + 1);
+              setIsResting(false);
+              setHasPlayedWarning(false);
+              return settings.roundTime;
+            }
+          }
+          return prevTime - 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(intervalRef.current);
+    }
+
+    return () => clearInterval(intervalRef.current);
+  }, [isActive, isResting, currentRound, settings, hasPlayedWarning]);
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleStart = () => {
+    if (audioContextRef.current?.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
+    setIsActive(true);
+    if (timeLeft === (isResting ? settings.restTime : settings.roundTime)) {
+      playRoundStart();
+    }
+  };
+
+  const handlePause = () => {
+    setIsActive(false);
+  };
+
+  const handleReset = () => {
+    setIsActive(false);
+    setCurrentRound(1);
+    setTimeLeft(settings.roundTime);
+    setIsResting(false);
+    setHasPlayedWarning(false);
+  };
+
+  const handleSettingsUpdate = (newSettings) => {
+    setSettings(newSettings);
+    setTimeLeft(newSettings.roundTime);
+    setCurrentRound(1);
+    setIsResting(false);
+    setIsActive(false);
+    setHasPlayedWarning(false);
+  };
+
+  const isWorkoutComplete = currentRound > settings.totalRounds && !isActive;
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-800 via-slate-700 to-slate-900 text-white">
+      <div className="container mx-auto px-4 py-8 max-w-md">
+        <div className="bg-black/30 backdrop-blur-sm rounded-3xl p-8 shadow-2xl border border-slate-500/20">
+          {/* Header */}
+          <div className="flex justify-between items-center mb-8">
+            <h1 className="text-2xl font-bold">Boxing Timer</h1>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSoundEnabled(!soundEnabled)}
+                className={`p-2 rounded-full transition-colors ${
+                  soundEnabled 
+                    ? 'bg-blue-600/20 hover:bg-blue-600/40 text-blue-300' 
+                    : 'bg-gray-600/20 hover:bg-gray-600/40 text-gray-400'
+                }`}
+                title={soundEnabled ? 'Sound On' : 'Sound Off'}
+              >
+                <Volume2 className="w-6 h-6" />
+              </button>
+              <button
+                onClick={() => setShowSettings(!showSettings)}
+                className="p-2 rounded-full bg-slate-600/20 hover:bg-slate-600/40 transition-colors"
+              >
+                <Settings className="w-6 h-6" />
+              </button>
+            </div>
+          </div>
+
+          {/* Settings Panel */}
+          {showSettings && (
+            <div className="mb-8 p-6 bg-black/40 rounded-2xl border border-slate-500/30">
+              <h3 className="text-lg font-semibold mb-4">Settings</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm mb-2">Round Time (minutes)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={settings.roundTime / 60}
+                    onChange={(e) => handleSettingsUpdate({
+                      ...settings,
+                      roundTime: parseInt(e.target.value) * 60
+                    })}
+                    className="w-full p-2 rounded-lg bg-black/50 border border-slate-500/30 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm mb-2">Rest Time (seconds)</label>
+                  <input
+                    type="number"
+                    min="10"
+                    max="120"
+                    value={settings.restTime}
+                    onChange={(e) => handleSettingsUpdate({
+                      ...settings,
+                      restTime: parseInt(e.target.value)
+                    })}
+                    className="w-full p-2 rounded-lg bg-black/50 border border-slate-500/30 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm mb-2">Total Rounds</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={settings.totalRounds}
+                    onChange={(e) => handleSettingsUpdate({
+                      ...settings,
+                      totalRounds: parseInt(e.target.value)
+                    })}
+                    className="w-full p-2 rounded-lg bg-black/50 border border-slate-500/30 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm mb-2">Warning Time (seconds before round ends)</label>
+                  <input
+                    type="number"
+                    min="5"
+                    max="30"
+                    value={settings.warningTime}
+                    onChange={(e) => handleSettingsUpdate({
+                      ...settings,
+                      warningTime: parseInt(e.target.value)
+                    })}
+                    className="w-full p-2 rounded-lg bg-black/50 border border-slate-500/30 text-white"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Status */}
+          <div className="text-center mb-8">
+            <div className="text-lg mb-2">
+              Round {Math.min(currentRound, settings.totalRounds)} of {settings.totalRounds}
+            </div>
+            <div className={`text-sm px-4 py-2 rounded-full inline-block ${
+              isWorkoutComplete 
+                ? 'bg-green-600/30 text-green-300' 
+                : isResting 
+                  ? 'bg-blue-600/30 text-blue-300' 
+                  : 'bg-orange-600/30 text-orange-300'
+            }`}>
+              {isWorkoutComplete ? 'WORKOUT COMPLETE!' : isResting ? 'REST' : 'FIGHT!'}
+            </div>
+          </div>
+
+          {/* Timer Display */}
+          <div className="text-center mb-8">
+            <div className={`text-6xl font-mono font-bold mb-4 ${
+              timeLeft <= settings.warningTime && !isResting && isActive ? 'text-yellow-400 animate-pulse' : ''
+            }`}>
+              {formatTime(timeLeft)}
+            </div>
+            
+            {/* Progress Bar */}
+            <div className="w-full bg-black/50 rounded-full h-3 mb-4">
+              <div 
+                className={`h-full rounded-full transition-all duration-1000 ${
+                  isResting ? 'bg-blue-500' : 'bg-orange-500'
+                }`}
+                style={{
+                  width: `${((isResting ? settings.restTime : settings.roundTime) - timeLeft) / 
+                    (isResting ? settings.restTime : settings.roundTime) * 100}%`
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div className="flex justify-center gap-4">
+            {!isActive ? (
+              <button
+                onClick={handleStart}
+                disabled={isWorkoutComplete}
+                className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-6 py-3 rounded-xl font-semibold transition-colors"
+              >
+                <Play className="w-5 h-5" />
+                Start
+              </button>
+            ) : (
+              <button
+                onClick={handlePause}
+                className="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 px-6 py-3 rounded-xl font-semibold transition-colors"
+              >
+                <Pause className="w-5 h-5" />
+                Pause
+              </button>
+            )}
+            
+            <button
+              onClick={handleReset}
+              className="flex items-center gap-2 bg-gray-600 hover:bg-gray-700 px-6 py-3 rounded-xl font-semibold transition-colors"
+            >
+              <RotateCcw className="w-5 h-5" />
+              Reset
+            </button>
+          </div>
+
+          {/* Sound Indicator */}
+          <div className="flex items-center justify-center mt-6 text-sm text-gray-400">
+            <Volume2 className={`w-4 h-4 mr-2 ${soundEnabled ? 'text-blue-400' : 'text-gray-500'}`} />
+            {soundEnabled ? 'Audio cues enabled' : 'Audio cues disabled'}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default BoxingTimer;
